@@ -1,0 +1,70 @@
+# Action SHAs checked on 2026-11-10 against the newest stable releases.
+# GoReleaser 2.20.0 is outside the vulnerable range of GHSA-95mm-pj4f-x75r
+# (>= 2.6.0, <= 2.18.1) and includes the fix for GHSA-9422-8p9m-393x.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require stable tag, changelog and main ancestry
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 - << 'PY'
+          import os, re
+          tag = os.environ["TAG"]
+          match = re.fullmatch(r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", tag)
+          if match is None:
+              raise SystemExit("tag must be stable SemVer vX.Y.Z")
+          version = ".".join(match.groups())
+          changelog = open("CHANGELOG.md", encoding="utf-8").read()
+          if f"## [{version}]" not in changelog:
+              raise SystemExit(f"CHANGELOG.md has no entry for {version}")
+          PY
+          git fetch origin main
+          git merge-base --is-ancestor HEAD origin/main
+  quality:
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+  release:
+    needs: [validate, quality]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Publish archives and checksums
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          version: v2.20.0
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

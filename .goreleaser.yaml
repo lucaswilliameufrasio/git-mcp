@@ -1,0 +1,53 @@
+version: 2
+
+project_name: git-mcp
+
+builds:
+  - id: git-mcp
+    main: ./cmd/git-mcp
+    binary: git-mcp
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X git-mcp/internal/server.version={{ .Version }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+      - docs/releases.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+source:
+  enabled: true
+  name_template: "{{ .ProjectName }}_{{ .Version }}_source"
+  format: tar.gz
+
+changelog:
+  disable: true
+
+release:
+  github:
+    owner: lucaswilliameufrasio
+    name: git-mcp
+  draft: false
+  header: |
+    Versão {{ .Tag }} do git-mcp.
+
+    Os arquivos incluem o binário para Linux, macOS e Windows (amd64 e arm64),
+    o código-fonte e `checksums.txt` com SHA-256. Os testes rodam em Linux;
+    macOS e Windows são builds cruzados. O binário não pede argumentos:
+    cada cliente MCP informa o repositório na chamada.

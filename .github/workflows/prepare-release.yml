@@ -1,0 +1,89 @@
+# Action SHAs checked on 2026-11-10 against the newest stable releases.
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versão estável, por exemplo 0.1.0 ou v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-preparation
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Validate version
+        id: version
+        env:
+          RAW_VERSION: ${{ inputs.version }}
+        run: |
+          python3 - << 'PY'
+          import os, re, subprocess
+          raw = os.environ["RAW_VERSION"].strip()
+          version = raw[1:] if raw.startswith("v") else raw
+          if not re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", version):
+              raise SystemExit("version must use SemVer: X.Y.Z")
+          tags = subprocess.check_output(["git", "tag", "-l"], text=True).split()
+          current = tuple(int(part) for part in version.split("."))
+          pattern = re.compile(r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+          for tag in tags:
+              match = pattern.fullmatch(tag)
+              if match is None:
+                  continue
+              parsed = tuple(int(part) for part in match.groups())
+              if parsed >= current:
+                  raise SystemExit(f"{version} is not newer than {tag}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"value={version}\n")
+          PY
+      - name: Install pinned git-cliff
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: git-cliff@2.14.2
+      - name: Create or resume release pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          branch="release/v$VERSION"
+          if ! git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            git cliff --tag "v$VERSION" -o CHANGELOG.md
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git switch -c "$branch"
+            git add CHANGELOG.md
+            git commit -m "chore(release): prepare for v$VERSION"
+            git push origin "HEAD:refs/heads/$branch"
+          fi
+          if ! gh pr list --state open --head "$branch" --json number --jq '.[0].number // empty' | grep -q .; then
+            cat > "$RUNNER_TEMP/release-pr.md" << EOF
+          Preparação da release **v$VERSION**. Revise o changelog e aguarde o CI.
+
+          Depois do merge, marque o commit revisado em main com \`v$VERSION\`.
+          O workflow Release confere a ascendência de main, roda o CI e publica
+          a GitHub Release.
+
+          Esta preparação não cria tag nem release.
+          EOF
+            gh pr create --base main --head "$branch" --title "Release v$VERSION" --body-file "$RUNNER_TEMP/release-pr.md"
+          else
+            gh pr view "$branch" --json url --jq .url
+          fi
