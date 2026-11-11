@@ -121,11 +121,13 @@ O comando abre um painel web somente leitura em `127.0.0.1`, numa porta escolhid
 | --- | --- |
 | Visão geral | Chamadas na amostra, chamadas interrompidas, duração média e quantas terminaram em cada status. |
 | Monitoramento | Por ferramenta: chamadas, interrompidas, duração média, a mais lenta e a última. |
-| Auditoria | Cada chamada: ferramenta, início, duração e status. |
+| Auditoria | Cada chamada dos últimos 30 dias, 50 por página: ferramenta, modo, repositório, branches, início, duração, status, mensagem e motivos. Filtra por ferramenta, status, período e texto. |
 
-Interrompida é a chamada que terminou em `blocked`, `conflict` ou `partial`. Os números cobrem as 200 chamadas mais recentes, não o histórico inteiro.
+Interrompida é a chamada que terminou em `blocked`, `conflict` ou `partial`. Os números da Visão geral e do Monitoramento cobrem as 200 chamadas mais recentes. A Auditoria percorre o histórico inteiro dentro da retenção.
 
-Cada processo stdio grava um arquivo por chamada concluída em `$XDG_STATE_HOME/git-mcp/audit`, ou em `~/.local/state/git-mcp/audit` quando a variável não existe. O arquivo guarda nome da ferramenta, horário, duração e status. Repositório, branches, oids, mensagens e argumentos não são gravados. Arquivos com mais de 30 dias são apagados na gravação ou leitura seguinte. O diretório é criado com modo `0700`; se já existir com acesso para outros usuários, a auditoria fica desligada. Se a auditoria não puder ser aberta ou gravada, o aviso vai para stderr e as ferramentas continuam funcionando.
+Os filtros da Auditoria ficam no endereço (`/web/audit?tool=merge_into&status=conflict&period=7d&q=loja`), então uma busca pode ser guardada ou recarregada. O texto é procurado, sem diferenciar maiúsculas, em repositório, branches, mensagem e motivos.
+
+Cada processo stdio grava um arquivo por chamada concluída em `$XDG_STATE_HOME/git-mcp/audit`, ou em `~/.local/state/git-mcp/audit` quando a variável não existe. O arquivo guarda nome da ferramenta, horário, duração, status, modo (`preview` ou `execute`), caminho do repositório, os nomes de branch, tag e remoto informados na chamada, a mensagem do resultado e até cinco motivos de bloqueio. A string de confirmação, os oids e a lista de efeitos não são gravados. Cada texto é cortado em 300 caracteres. Chamadas gravadas pela 0.2.0 só têm os quatro primeiros campos e aparecem com travessão no lugar do repositório. Arquivos com mais de 30 dias são apagados na gravação ou leitura seguinte. O diretório é criado com modo `0700`; se já existir com acesso para outros usuários, a auditoria fica desligada. Se a auditoria não puder ser aberta ou gravada, o aviso vai para stderr e as ferramentas continuam funcionando.
 
 O painel não tem autenticação. Ele recusa conexão que não venha do loopback, cabeçalho `Host` ou `Origin` diferente do próprio endereço, requisição de outro site e qualquer método além de GET. Isso não protege contra outro processo ou usuário da mesma máquina: quem alcança a porta lê os metadados. Em máquina compartilhada, deixe o comando parado.
 

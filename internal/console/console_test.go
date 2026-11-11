@@ -1,6 +1,7 @@
 package console
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -112,5 +113,91 @@ func TestRenderReportsUnavailableAuditInsteadOfZero(t *testing.T) {
 func TestUnknownSectionFallsBackToOverview(t *testing.T) {
 	if page := NewPage("outra", nil, false, time.Now()); page.Section != SectionOverview {
 		t.Fatalf("seção %q", page.Section)
+	}
+}
+
+func TestParseQueryKeepsOnlyWhatThePageOffers(t *testing.T) {
+	query := ParseQuery(url.Values{"tool": {" merge_into "}, "status": {"conflict"}, "period": {"7d"}, "q": {" loja "}, "page": {"3"}})
+	if query != (Query{Tool: "merge_into", Status: "conflict", Period: "7d", Text: "loja", Page: 3}) {
+		t.Fatalf("consulta %+v", query)
+	}
+	if query.Offset() != 2*PageSize {
+		t.Fatalf("deslocamento %d", query.Offset())
+	}
+	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	if since := query.Filter(now).Since; !since.Equal(now.Add(-7 * 24 * time.Hour)) {
+		t.Fatalf("início do período %s", since)
+	}
+
+	loose := ParseQuery(url.Values{"period": {"1ano"}, "page": {"-4"}, "q": {strings.Repeat("a", 500)}})
+	if loose.Period != "" || loose.Page != 1 || len(loose.Text) != 200 {
+		t.Fatalf("valores fora do oferecido: %+v", loose)
+	}
+	if !loose.Filter(now).Since.IsZero() {
+		t.Fatal("sem período, a busca cobre toda a retenção")
+	}
+}
+
+func TestAuditPageShowsDetailsFiltersAndNeighbours(t *testing.T) {
+	query := Query{Tool: "merge_into", Text: "loja & cia", Page: 2}
+	found := audit.Found{
+		Total: 120,
+		Tools: []string{"merge_into", "update_branch"},
+		Events: []audit.Event{{
+			Tool: "merge_into", Mode: "execute", Status: "conflict", Repository: "/srv/loja",
+			Refs:    []audit.Ref{{Name: "target", Value: "develop"}},
+			Message: "Merge parou em conflito", Reasons: []string{"<b>go.mod</b>"},
+			StartedAt: time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC), Duration: 2 * time.Second,
+		}},
+	}
+	page := NewAuditPage(query, found, false, time.Now())
+	if page.Audit.From != 51 || page.Audit.To != 51 || page.Audit.Total != 120 || !page.Audit.Filtered {
+		t.Fatalf("faixa %+v", page.Audit)
+	}
+	if page.Audit.Previous != "/web/audit?q=loja+%26+cia&tool=merge_into" || page.Audit.Next != "/web/audit?page=3&q=loja+%26+cia&tool=merge_into" {
+		t.Fatalf("vizinhas: %q e %q", page.Audit.Previous, page.Audit.Next)
+	}
+
+	var out strings.Builder
+	if err := Render(&out, page); err != nil {
+		t.Fatal(err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		`<option value="merge_into" selected>`, `value="loja &amp; cia"`, "/srv/loja", "<code>execute</code>",
+		"<code>develop</code>", "Merge parou em conflito", "&lt;b&gt;go.mod&lt;/b&gt;", "Chamadas 51 a 51 de 120 com estes filtros",
+		`rel="prev"`, `rel="next"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("faltou %q", want)
+		}
+	}
+}
+
+func TestAuditPageEmptyStates(t *testing.T) {
+	render := func(query Query, found audit.Found) string {
+		var out strings.Builder
+		if err := Render(&out, NewAuditPage(query, found, false, time.Now())); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	if html := render(Query{Page: 1}, audit.Found{}); !strings.Contains(html, "Nenhuma chamada gravada") || strings.Contains(html, "Limpar filtros") {
+		t.Error("sem chamadas e sem filtro")
+	}
+	if html := render(Query{Status: "partial", Page: 1}, audit.Found{}); !strings.Contains(html, "Nenhuma chamada com estes filtros") || !strings.Contains(html, "Limpar filtros") {
+		t.Error("filtro sem acerto")
+	}
+	past := NewAuditPage(Query{Page: 9}, audit.Found{Total: 60}, false, time.Now())
+	if past.Audit.Previous != "/web/audit?page=2" {
+		t.Errorf("página além do fim deveria voltar à última: %q", past.Audit.Previous)
+	}
+	old := NewAuditPage(Query{Page: 1}, audit.Found{Total: 1, Events: []audit.Event{{Tool: "update_branch", Status: "success"}}}, false, time.Now())
+	var out strings.Builder
+	if err := Render(&out, old); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "<td>—") {
+		t.Error("evento gravado pela 0.2.0, sem repositório, mostra travessão")
 	}
 }

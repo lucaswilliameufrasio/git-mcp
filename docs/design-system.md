@@ -97,6 +97,25 @@ mudar), `attention` para `conflict` e `partial` (ficou no meio do caminho).
 - Vazio: uma frase em `muted` no lugar da tabela.
 - De: A.
 
+### Linha do histórico
+- Cada célula tem um valor principal e, embaixo, linhas secundárias em `size-small` e `muted`: o modo sob a ferramenta, as branches sob o repositório, a mensagem e os motivos sob o status.
+- Caminho e nomes de branch em monoespaçada. Início e duração não quebram. A tabela tem largura mínima de 900px e rola dentro do contêiner.
+- Chamada sem repositório gravado mostra `—`.
+- De: A (tabela), mais a palavra literal.
+
+### Filtros
+- Formulário GET numa linha que quebra: rótulo pequeno em `muted` sobre cada controle, três seleções, um campo de texto que ocupa o resto, botão "Filtrar". Com filtro ativo aparece o link "Limpar filtros".
+- Controles: 44px de altura, borda de 1px, raio `radius-control`, fundo `surface`. A referência não tem campo de formulário; a anatomia é a do botão "Sair" de A (borda de 1px, raio de 5px, 44px, fonte herdada) desenhada sobre a superfície clara.
+- Borda dos campos em `muted` (6,10:1) e não em `line` (1,44:1), porque a borda é o que delimita o controle.
+- Botão: borda e texto em `link`, peso 700; hover com fundo `rail-current`. Sem botão preenchido.
+- As opções das seleções são identificadores, por isso em monoespaçada.
+- Estados: padrão, hover (botão), foco (contorno de 3px), vazio com filtro ("Nenhuma chamada com estes filtros"), vazio sem filtro.
+- De: tokens e botão de A.
+
+### Paginação
+- Dois links de texto, "Mais recentes" à esquerda e "Mais antigas" à direita, com 44px de alvo. Acima da tabela, uma frase diz a faixa e o total. Sem números de página.
+- De: os links de texto de A.
+
 ### Status
 - A palavra literal do servidor, monoespaçada em 700, na cor do tom. Sem pílula nem fundo.
 - De: A (texto colorido em negrito), mais a palavra literal.
@@ -118,7 +137,8 @@ DEVE
 3. As métricas ficam numa faixa única dividida por linhas.
 4. Status aparece como a palavra literal do servidor, em texto colorido.
 5. Nomes de ferramenta e status usam a fonte monoespaçada; o resto do texto não.
-6. A página funciona sem JavaScript e sem recurso externo, por causa da política de conteúdo do console.
+6. Filtro e paginação são endereço: formulário GET e links.
+7. A página funciona sem JavaScript e sem recurso externo, por causa da política de conteúdo do console.
 
 NÃO DEVE
 1. Sombra, gradiente, vidro ou desfoque.
@@ -154,4 +174,5 @@ Não há back office nem aplicativo móvel.
 
 ## Histórico
 
+- 2026-11-11: a Auditoria ganhou linha com detalhes, filtros e paginação. Os controles de formulário não existem na referência e foram derivados do botão de A e dos tokens.
 - 2026-11-11: primeira versão, extraída do console do jira-mcp v1.0.0, com a camada de identidade do git-mcp.

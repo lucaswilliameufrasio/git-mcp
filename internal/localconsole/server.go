@@ -16,6 +16,7 @@ import (
 // Reader is the part of the audit store the console needs.
 type Reader interface {
 	List(ctx context.Context, limit int) ([]audit.Event, error)
+	Search(ctx context.Context, filter audit.Filter, offset, limit int) (audit.Found, error)
 }
 
 // Server is a running console. URL is its overview page.
@@ -64,7 +65,7 @@ func newHandler(reader Reader, host string) http.Handler {
 		header.Set("Referrer-Policy", "no-referrer")
 		header.Set("X-Content-Type-Options", "nosniff")
 		header.Set("X-Frame-Options", "DENY")
-		header.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+		header.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 
 		peerHost, _, err := net.SplitHostPort(r.RemoteAddr)
 		peer := net.ParseIP(peerHost)
@@ -102,9 +103,18 @@ func newHandler(reader Reader, host string) http.Handler {
 
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
-		events, err := reader.List(ctx, audit.MaxList)
+		now := time.Now()
+		var page console.Page
+		if section == console.SectionAudit {
+			query := console.ParseQuery(r.URL.Query())
+			found, err := reader.Search(ctx, query.Filter(now), query.Offset(), console.PageSize)
+			page = console.NewAuditPage(query, found, err != nil, now)
+		} else {
+			events, err := reader.List(ctx, audit.MaxList)
+			page = console.NewPage(section, events, err != nil, now)
+		}
 		var body bytes.Buffer
-		if err := console.Render(&body, console.NewPage(section, events, err != nil, time.Now())); err != nil {
+		if err := console.Render(&body, page); err != nil {
 			http.Error(w, "page unavailable", http.StatusInternalServerError)
 			return
 		}

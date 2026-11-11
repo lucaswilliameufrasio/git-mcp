@@ -148,6 +148,23 @@ func TestMCPListsToolsAndRunsUpdate(t *testing.T) {
 		}
 		calls = append(calls, event.Tool+" "+event.Status)
 	}
+	last := observed[len(observed)-1]
+	if last.Mode != "execute" || last.Repository == "" || last.Message == "" {
+		t.Fatalf("detalhes da execução: %+v", last)
+	}
+	if !slices.Equal(last.Refs, []audit.Ref{{Name: "branch", Value: "main"}, {Name: "remote", Value: "origin"}}) {
+		t.Fatalf("refs da execução: %+v", last.Refs)
+	}
+	body, err := json.Marshal(last)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), preview.Confirmation) {
+		t.Fatal("a confirmação não pode ir para a auditoria")
+	}
+	if first := observed[0]; first.Mode != "" || first.Repository == "" || len(first.Reasons) == 0 && first.Message == "" {
+		t.Fatalf("leitura recusada: %+v", first)
+	}
 	wantCalls := []string{"repository_inspect blocked", "repository_inspect success", "update_branch preview", "update_branch success"}
 	if !slices.Equal(calls, wantCalls) {
 		t.Fatalf("chamadas observadas %v", calls)
