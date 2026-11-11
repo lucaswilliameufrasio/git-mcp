@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"git-mcp/internal/audit"
 	"git-mcp/internal/gitflow"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -21,7 +22,8 @@ func TestMCPListsToolsAndRunsUpdate(t *testing.T) {
 	logger := log.New(&logs, "", 0)
 	svc := gitflow.New(logger)
 	svc.WorktreeRoot = t.TempDir()
-	mcpServer := New(svc, logger)
+	var observed []audit.Event
+	mcpServer := New(svc, logger, func(event audit.Event) { observed = append(observed, event) })
 
 	ctx := context.Background()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
@@ -137,6 +139,18 @@ func TestMCPListsToolsAndRunsUpdate(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "repository_inspect success") || !strings.Contains(logs.String(), "update_branch success") {
 		t.Fatalf("log: %s", logs.String())
+	}
+
+	var calls []string
+	for _, event := range observed {
+		if event.StartedAt.IsZero() || event.Duration <= 0 {
+			t.Fatalf("evento sem horário ou duração: %+v", event)
+		}
+		calls = append(calls, event.Tool+" "+event.Status)
+	}
+	wantCalls := []string{"repository_inspect blocked", "repository_inspect success", "update_branch preview", "update_branch success"}
+	if !slices.Equal(calls, wantCalls) {
+		t.Fatalf("chamadas observadas %v", calls)
 	}
 }
 
