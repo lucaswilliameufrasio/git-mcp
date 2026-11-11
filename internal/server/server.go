@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strings"
 	"time"
 
 	"git-mcp/internal/audit"
@@ -12,7 +13,7 @@ import (
 )
 
 // version is the MCP implementation version. Release builds replace it with -X.
-var version = "0.2.0"
+var version = "0.3.0"
 
 // Version is the version this binary reports to MCP clients.
 func Version() string {
@@ -119,7 +120,7 @@ func add[I any](mcpServer *mcp.Server, logger *log.Logger, observe func(audit.Ev
 		result := handle(ctx, in)
 		logger.Printf("%s %s", name, result.Status)
 		if observe != nil {
-			observe(audit.Event{Tool: name, StartedAt: started, Duration: time.Since(started), Status: string(result.Status)})
+			observe(describe(name, readOnly, in, result, started))
 		}
 		return callResult(result)
 	})
@@ -135,6 +136,55 @@ func callResult(result gitflow.Result) (*mcp.CallToolResult, any, error) {
 		IsError: isError,
 		Content: []mcp.Content{&mcp.TextContent{Text: string(body)}},
 	}, result, nil
+}
+
+// refNames are the arguments worth keeping in the audit, in the order they are shown.
+// confirmation is left out on purpose: it is an authorization, not a description.
+var refNames = []string{"branch", "source", "base", "target", "name", "tag", "remote", "branches"}
+
+// describe turns one finished call into its audit record.
+func describe(tool string, readOnly bool, in any, result gitflow.Result, started time.Time) audit.Event {
+	event := audit.Event{
+		Tool:       tool,
+		StartedAt:  started,
+		Duration:   time.Since(started),
+		Status:     string(result.Status),
+		Repository: result.Repository,
+		Message:    result.Message,
+		Reasons:    result.Reasons,
+	}
+	var arguments map[string]any
+	if body, err := json.Marshal(in); err == nil {
+		_ = json.Unmarshal(body, &arguments)
+	}
+	if event.Repository == "" {
+		event.Repository, _ = arguments["repository"].(string)
+	}
+	if !readOnly {
+		event.Mode = gitflow.ModePreview
+		if mode, _ := arguments["mode"].(string); mode != "" {
+			event.Mode = mode
+		}
+	}
+	for _, name := range refNames {
+		switch value := arguments[name].(type) {
+		case string:
+			if value != "" {
+				event.Refs = append(event.Refs, audit.Ref{Name: name, Value: value})
+			}
+		case []any:
+			names := make([]string, 0, len(value))
+			for _, item := range value {
+				if text, ok := item.(string); ok {
+					names = append(names, text)
+				}
+			}
+			if len(names) > 0 {
+				event.Refs = append(event.Refs, audit.Ref{Name: name, Value: strings.Join(names, ", ")})
+			}
+		}
+	}
+	return event
 }
 
 type logDiscard struct{}

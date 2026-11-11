@@ -16,6 +16,15 @@ import (
 type fakeReader struct {
 	events []audit.Event
 	err    error
+	// searched receives the filter and offset of each search.
+	searched func(audit.Filter, int)
+}
+
+func (f fakeReader) Search(_ context.Context, filter audit.Filter, offset, _ int) (audit.Found, error) {
+	if f.searched != nil {
+		f.searched(filter, offset)
+	}
+	return audit.Found{Events: f.events, Total: len(f.events)}, f.err
 }
 
 func (f fakeReader) List(context.Context, int) ([]audit.Event, error) {
@@ -113,5 +122,31 @@ func TestStartListensOnLoopbackUntilClosed(t *testing.T) {
 	}
 	if _, err := http.Get(web.URL); err == nil {
 		t.Fatal("o console deveria parar de responder depois de fechado")
+	}
+}
+
+func TestAuditPageSearchesWithTheAddressFilters(t *testing.T) {
+	var got audit.Filter
+	var gotOffset int
+	reader := fakeReader{
+		events:   []audit.Event{{Tool: "merge_into", Status: "conflict", Repository: "/srv/loja", StartedAt: time.Now(), Duration: time.Second}},
+		searched: func(filter audit.Filter, offset int) { got, gotOffset = filter, offset },
+	}
+	response := serve(reader, func(r *http.Request) {
+		r.URL.Path = "/web/audit"
+		r.URL.RawQuery = "tool=merge_into&status=conflict&period=24h&q=loja&page=3"
+	})
+	if response.Code != http.StatusOK {
+		t.Fatalf("status %d", response.Code)
+	}
+	if got.Tool != "merge_into" || got.Status != "conflict" || got.Text != "loja" || got.Since.IsZero() || gotOffset != 100 {
+		t.Fatalf("filtro %+v, deslocamento %d", got, gotOffset)
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, "/srv/loja") || !strings.Contains(body, `value="loja"`) {
+		t.Fatal("a página deveria mostrar o repositório e manter o texto buscado")
+	}
+	if !strings.Contains(response.Header().Get("Content-Security-Policy"), "form-action 'self'") {
+		t.Fatal("o formulário de filtros precisa poder enviar para o próprio console")
 	}
 }

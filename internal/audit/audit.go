@@ -1,4 +1,4 @@
-// Package audit stores metadata about MCP tool calls, never their arguments or results.
+// Package audit records each finished MCP tool call in a private per-user directory.
 package audit
 
 import (
@@ -25,13 +25,105 @@ const Retention = 30 * 24 * time.Hour
 // MaxList bounds one read, so a page never summarizes more than this many events.
 const MaxList = 200
 
-// Event is one finished tool call. Repository paths, branch names, oids and
-// messages are deliberately absent.
+// Event is one finished tool call: what was asked, where, and how it ended.
+// The confirmation string and commit oids are deliberately absent.
 type Event struct {
 	Tool      string        `json:"tool"`
 	StartedAt time.Time     `json:"started_at"`
 	Duration  time.Duration `json:"duration_ns"`
 	Status    string        `json:"status"`
+	// Mode is preview or execute; empty for a tool that only reads.
+	Mode       string `json:"mode,omitempty"`
+	Repository string `json:"repository,omitempty"`
+	// Refs are the branch, tag and remote names the call named, in argument order.
+	Refs    []Ref    `json:"refs,omitempty"`
+	Message string   `json:"message,omitempty"`
+	Reasons []string `json:"reasons,omitempty"`
+}
+
+// Ref is one named argument of a call, such as target=main.
+type Ref struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// Filter narrows a search. A zero field does not filter.
+type Filter struct {
+	Tool   string
+	Status string
+	// Since keeps calls recorded at or after this instant.
+	Since time.Time
+	// Text is matched, ignoring case, against repository, refs, message and reasons.
+	Text string
+}
+
+// Found is one page of a search over every retained event.
+type Found struct {
+	Events []Event
+	// Total counts the events that match the filter, not only this page.
+	Total int
+	// Tools names every tool with a retained event, whatever the filter.
+	Tools []string
+}
+
+const (
+	maxText    = 300
+	maxReasons = 5
+	maxRefs    = 12
+	maxFile    = 32 << 10
+)
+
+// bounded keeps an event file small whatever a tool returned.
+func bounded(event Event) Event {
+	event.Mode = clip(event.Mode, 20)
+	event.Repository = clip(event.Repository, 4*maxText)
+	event.Message = clip(event.Message, maxText)
+	if len(event.Reasons) > maxReasons {
+		event.Reasons = event.Reasons[:maxReasons]
+	}
+	event.Reasons = append([]string(nil), event.Reasons...)
+	for i, reason := range event.Reasons {
+		event.Reasons[i] = clip(reason, maxText)
+	}
+	if len(event.Refs) > maxRefs {
+		event.Refs = event.Refs[:maxRefs]
+	}
+	event.Refs = append([]Ref(nil), event.Refs...)
+	for i, ref := range event.Refs {
+		event.Refs[i] = Ref{Name: clip(ref.Name, 40), Value: clip(ref.Value, maxText)}
+	}
+	return event
+}
+
+func clip(text string, limit int) string {
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit]) + "…"
+}
+
+func (e Event) matches(filter Filter) bool {
+	if filter.Tool != "" && e.Tool != filter.Tool {
+		return false
+	}
+	if filter.Status != "" && e.Status != filter.Status {
+		return false
+	}
+	if filter.Text == "" {
+		return true
+	}
+	needle := strings.ToLower(filter.Text)
+	fields := append([]string{e.Repository, e.Message}, e.Reasons...)
+	for _, ref := range e.Refs {
+		fields = append(fields, ref.Value)
+	}
+	for _, field := range fields {
+		if strings.Contains(strings.ToLower(field), needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // DefaultDirectory is the per-user state directory shared by every git-mcp process.
@@ -99,7 +191,7 @@ func (s *FileStore) Append(ctx context.Context, event Event) error {
 	}
 	tempPath := file.Name()
 	defer func() { _ = os.Remove(tempPath) }()
-	writeErr := json.NewEncoder(file).Encode(event)
+	writeErr := json.NewEncoder(file).Encode(bounded(event))
 	closeErr := file.Close()
 	if writeErr != nil || closeErr != nil {
 		return errors.Join(writeErr, closeErr)
@@ -114,7 +206,7 @@ func (s *FileStore) sweep(ctx context.Context) error {
 	if now.Before(s.nextSweep) {
 		return nil
 	}
-	if _, err := s.list(ctx, 0); err != nil {
+	if _, err := s.retained(ctx); err != nil {
 		return err
 	}
 	s.nextSweep = now.Add(min(time.Hour, s.retention/2))
@@ -130,13 +222,84 @@ func (s *FileStore) List(ctx context.Context, limit int) ([]Event, error) {
 }
 
 func (s *FileStore) list(ctx context.Context, limit int) ([]Event, error) {
+	files, err := s.retained(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]Event, 0)
+	for _, file := range files {
+		if len(result) >= limit {
+			break
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		event, err := readEvent(file.path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, event)
+	}
+	return result, nil
+}
+
+// Search reads every retained event, newest first, and returns the matching
+// ones from offset on, at most limit of them.
+func (s *FileStore) Search(ctx context.Context, filter Filter, offset, limit int) (Found, error) {
+	if offset < 0 || limit < 1 || limit > MaxList {
+		return Found{}, fmt.Errorf("a página de auditoria vai de 1 a %d chamadas", MaxList)
+	}
+	files, err := s.retained(ctx)
+	if err != nil {
+		return Found{}, err
+	}
+	found := Found{Events: make([]Event, 0, limit)}
+	tools := make(map[string]bool)
+	since := filter.Since.UnixNano()
+	for _, file := range files {
+		if err := ctx.Err(); err != nil {
+			return Found{}, err
+		}
+		event, err := readEvent(file.path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return Found{}, err
+		}
+		tools[event.Tool] = true
+		if (!filter.Since.IsZero() && file.stamp < since) || !event.matches(filter) {
+			continue
+		}
+		if found.Total >= offset && len(found.Events) < limit {
+			found.Events = append(found.Events, event)
+		}
+		found.Total++
+	}
+	for tool := range tools {
+		found.Tools = append(found.Tools, tool)
+	}
+	sort.Strings(found.Tools)
+	return found, nil
+}
+
+type eventFile struct {
+	stamp int64
+	path  string
+}
+
+// retained lists this package's event files, newest first, and removes the ones past the retention.
+func (s *FileStore) retained(ctx context.Context) ([]eventFile, error) {
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
 		return nil, err
 	}
 	// The zero-padded timestamp makes name order equal to time order.
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() > entries[j].Name() })
-	result := make([]Event, 0)
+	files := make([]eventFile, 0, len(entries))
 	cutoff := s.clock().Add(-s.retention).UnixNano()
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
@@ -154,19 +317,9 @@ func (s *FileStore) list(ctx context.Context, limit int) ([]Event, error) {
 			}
 			continue
 		}
-		if len(result) >= limit {
-			continue
-		}
-		event, err := readEvent(path)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, event)
+		files = append(files, eventFile{stamp: stamp, path: path})
 	}
-	return result, nil
+	return files, nil
 }
 
 // eventStamp accepts only names this package writes: event-<20 digits>-<32 hex>.json.
@@ -191,7 +344,7 @@ func readEvent(path string) (Event, error) {
 		return Event{}, err
 	}
 	var event Event
-	err = json.NewDecoder(io.LimitReader(file, 4096)).Decode(&event)
+	err = json.NewDecoder(io.LimitReader(file, maxFile)).Decode(&event)
 	if closeErr := file.Close(); err != nil || closeErr != nil {
 		return Event{}, errors.Join(err, closeErr)
 	}

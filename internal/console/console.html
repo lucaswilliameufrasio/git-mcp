@@ -84,24 +84,53 @@
 {{if eq .Section "audit"}}
 <section class="content">
   <h2>Chamadas gravadas</h2>
-  <p class="muted">Cada linha guarda ferramenta, horário, duração e status. Repositório, branches, oids e mensagens não são gravados.</p>
+  <p class="muted">Cada linha guarda ferramenta, modo, repositório, branches, horário, duração, status e a mensagem do resultado. A confirmação e os oids não são gravados.</p>
+  <form class="filters" method="get" action="/web/audit">
+    <div class="field"><label for="filter-tool">Ferramenta</label>
+      <select id="filter-tool" name="tool">{{range .Audit.Tools}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select></div>
+    <div class="field"><label for="filter-status">Status</label>
+      <select id="filter-status" name="status">{{range .Audit.Statuses}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select></div>
+    <div class="field"><label for="filter-period">Período</label>
+      <select id="filter-period" name="period">{{range .Audit.Periods}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select></div>
+    <div class="field grow"><label for="filter-text">Repositório, branch ou mensagem</label>
+      <input id="filter-text" name="q" type="search" value="{{.Audit.Text}}" maxlength="200" autocomplete="off"></div>
+    <button type="submit">Filtrar</button>
+    {{if .Audit.Filtered}}<a class="clear" href="/web/audit">Limpar filtros</a>{{end}}
+  </form>
   {{if .Events}}
+  <p class="muted" role="status">Chamadas {{.Audit.From}} a {{.Audit.To}} de {{.Audit.Total}}{{if .Audit.Filtered}} com estes filtros{{end}}, da mais recente para a mais antiga.</p>
   <div class="table-wrap">
-  <table>
-    <thead><tr><th scope="col">Ferramenta</th><th scope="col">Início</th><th scope="col">Duração</th><th scope="col">Status</th></tr></thead>
+  <table class="history">
+    <thead><tr><th scope="col">Chamada</th><th scope="col">Repositório</th><th scope="col">Início</th><th scope="col">Duração</th><th scope="col">Resultado</th></tr></thead>
     <tbody>
-    {{range .Events}}<tr><td><code>{{.Tool}}</code></td><td>{{.Time}}</td><td>{{.Duration}}</td><td><span class="status {{.Tone}}">{{.Status}}</span></td></tr>
+    {{range .Events}}<tr>
+      <td><code>{{.Tool}}</code>{{if .Mode}}<span class="sub">modo <code>{{.Mode}}</code></span>{{end}}</td>
+      <td>{{if .Repository}}<span class="path">{{.Repository}}</span>{{else}}—{{end}}{{if .Refs}}<span class="sub">{{range .Refs}}<span class="ref">{{.Name}} <code>{{.Value}}</code></span> {{end}}</span>{{end}}</td>
+      <td class="when">{{.Time}}</td>
+      <td class="when">{{.Duration}}</td>
+      <td><span class="status {{.Tone}}">{{.Status}}</span>{{if .Message}}<span class="sub">{{.Message}}</span>{{end}}{{range .Reasons}}<span class="sub">{{.}}</span>{{end}}</td>
+    </tr>
     {{end}}
     </tbody>
   </table>
   </div>
+  {{if or .Audit.Previous .Audit.Next}}
+  <nav class="pager" aria-label="Páginas da auditoria">
+    {{if .Audit.Previous}}<a href="{{.Audit.Previous}}" rel="prev">Mais recentes</a>{{end}}
+    {{if .Audit.Next}}<a href="{{.Audit.Next}}" rel="next">Mais antigas</a>{{end}}
+  </nav>
+  {{end}}
+  {{else if .Audit.Previous}}
+  <p class="muted">Não há chamadas nesta página. <a href="{{.Audit.Previous}}">Voltar às mais recentes</a></p>
+  {{else if .Audit.Filtered}}
+  <p class="muted">Nenhuma chamada com estes filtros.</p>
   {{else}}
   <p class="muted">Nenhuma chamada gravada neste diretório de estado.</p>
   {{end}}
 </section>
 {{end}}
 
-<p class="footer">Amostra: as {{.SampleLimit}} chamadas mais recentes dos últimos {{.RetentionDays}} dias. Dados lidos em {{.GeneratedAt}}.</p>
+<p class="footer">{{if eq .Section "audit"}}Histórico: todas as chamadas dos últimos {{.RetentionDays}} dias.{{else}}Amostra: as {{.SampleLimit}} chamadas mais recentes dos últimos {{.RetentionDays}} dias.{{end}} Dados lidos em {{.GeneratedAt}}.</p>
 {{end}}
 </main>
 </div>
