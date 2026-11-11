@@ -75,7 +75,7 @@ O servidor desliga `rebase.autoStash`, `rebase.autosquash` e `commit.gpgsign` em
 
 ## Configuração
 
-O binário não recebe argumentos, variáveis de ambiente nem um repositório fixo: cada chamada informa `repository`. Um exemplo para o Grok, em `~/.grok/config.toml`:
+O servidor MCP roda sem argumentos e sem repositório fixo: cada chamada informa `repository`. Os subcomandos estão em [Linha de comando](#linha-de-comando). Um exemplo para o Grok, em `~/.grok/config.toml`:
 
 ```toml
 [mcp_servers.git-mcp]
@@ -84,6 +84,52 @@ enabled = true
 ```
 
 Claude Code, Codex e OpenCode usam o mesmo executável, sem argumentos, como servidor stdio. Uma sessão já aberta só passa a ver o servidor depois de recarregar o cliente.
+
+## Linha de comando
+
+| Comando | Efeito |
+| --- | --- |
+| `git-mcp` | Inicia o servidor MCP por stdio. |
+| `git-mcp doctor` | Confere o ambiente. Sai com código 1 se algo falhar. |
+| `git-mcp tools` | Lista as ferramentas, com a descrição e o tipo de efeito: só leitura, altera ou destrutiva. |
+| `git-mcp stats` | Mostra no terminal os mesmos números do console. |
+| `git-mcp console` | Abre o painel local de métricas. |
+| `git-mcp version` | Mostra a versão. `--version` faz o mesmo. |
+| `git-mcp help` | Mostra os comandos. `--help` e `-h` fazem o mesmo. |
+
+Comando desconhecido, ou argumento a mais, encerra com a página de uso e código 2. Os subcomandos escrevem o resultado em stdout; o protocolo MCP só existe no modo sem argumentos.
+
+`doctor` não toca em repositório nem em configuração de cliente. O handshake inicia o servidor de verdade, que cria o diretório de auditoria se ele faltar. Ele confere:
+
+- `git` no `PATH` e a versão;
+- `~/git-worktrees`, que pode ainda não existir;
+- o diretório de auditoria e quantas chamadas há na amostra;
+- o próprio binário como servidor stdio: faz o handshake e conta as ferramentas;
+- a entrada do git-mcp na configuração de usuário do Claude Code (`~/.claude.json`), Codex (`~/.codex/config.toml`), Grok (`~/.grok/config.toml`) e OpenCode (`~/.config/opencode/opencode.json`), com o executável que cada um aponta.
+
+A lista de clientes é informativa e não muda o código de saída. Servidor registrado por projeto ou por plugin não aparece nela. O `doctor` não grava configuração em nenhum cliente.
+
+## Console local
+
+```sh
+git-mcp console
+```
+
+O comando abre um painel web somente leitura em `127.0.0.1`, numa porta escolhida pelo sistema, e imprime o endereço em stdout. Roda até receber Ctrl+C. É um processo separado do servidor MCP: a configuração dos clientes não muda, e parar um não para o outro.
+
+| Página | Mostra |
+| --- | --- |
+| Visão geral | Chamadas na amostra, chamadas interrompidas, duração média e quantas terminaram em cada status. |
+| Monitoramento | Por ferramenta: chamadas, interrompidas, duração média, a mais lenta e a última. |
+| Auditoria | Cada chamada: ferramenta, início, duração e status. |
+
+Interrompida é a chamada que terminou em `blocked`, `conflict` ou `partial`. Os números cobrem as 200 chamadas mais recentes, não o histórico inteiro.
+
+Cada processo stdio grava um arquivo por chamada concluída em `$XDG_STATE_HOME/git-mcp/audit`, ou em `~/.local/state/git-mcp/audit` quando a variável não existe. O arquivo guarda nome da ferramenta, horário, duração e status. Repositório, branches, oids, mensagens e argumentos não são gravados. Arquivos com mais de 30 dias são apagados na gravação ou leitura seguinte. O diretório é criado com modo `0700`; se já existir com acesso para outros usuários, a auditoria fica desligada. Se a auditoria não puder ser aberta ou gravada, o aviso vai para stderr e as ferramentas continuam funcionando.
+
+O painel não tem autenticação. Ele recusa conexão que não venha do loopback, cabeçalho `Host` ou `Origin` diferente do próprio endereço, requisição de outro site e qualquer método além de GET. Isso não protege contra outro processo ou usuário da mesma máquina: quem alcança a porta lê os metadados. Em máquina compartilhada, deixe o comando parado.
+
+A aparência do painel está registrada em [docs/design-system.md](docs/design-system.md).
 
 ## Verificação
 

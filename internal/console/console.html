@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} | git-mcp</title>
+<style>{{.Style}}</style>
+</head>
+<body>
+<a class="skip" href="#main">Ir para o conteúdo</a>
+<div class="shell">
+<aside class="rail">
+  <div class="brand">git-mcp<small>Console local</small></div>
+  <nav class="nav" aria-label="Navegação principal">
+    <a href="/web/overview" {{if eq .Section "overview"}}aria-current="page"{{end}}>Visão geral</a>
+    <a href="/web/monitoring" {{if eq .Section "monitoring"}}aria-current="page"{{end}}>Monitoramento</a>
+    <a href="/web/audit" {{if eq .Section "audit"}}aria-current="page"{{end}}>Auditoria</a>
+  </nav>
+  <div class="identity"><strong>Modo local</strong>Chamadas de todos os processos git-mcp deste usuário.</div>
+</aside>
+<main class="main" id="main">
+<header class="header">
+  <div>
+    <h1>{{.Title}}</h1>
+    <p>Chamadas de ferramenta gravadas pelos processos stdio.</p>
+  </div>
+  <a class="refresh" href="/web/{{.Section}}">Atualizar dados</a>
+</header>
+{{if .Unavailable}}
+<div class="notice" role="alert"><strong>Auditoria indisponível.</strong><br>Não foi possível ler os eventos. Atualize a página ou verifique o diretório de estado.</div>
+{{else}}
+
+{{if eq .Section "overview"}}
+<section class="summary" aria-label="Resumo das chamadas recentes">
+  <div class="metric"><span>Chamadas na amostra</span><strong>{{.Count}}</strong></div>
+  <div class="metric"><span>Chamadas interrompidas</span><strong>{{.Stopped}}</strong></div>
+  <div class="metric"><span>Duração média</span><strong>{{if .Average}}{{.Average}}{{else}}—{{end}}</strong></div>
+</section>
+<section class="content">
+  <h2>Como as chamadas terminaram</h2>
+  <p class="muted">Interrompida é a chamada que terminou em <code>blocked</code>, <code>conflict</code> ou <code>partial</code>.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th scope="col">Status</th><th scope="col">Chamadas</th><th scope="col">O que aconteceu</th></tr></thead>
+    <tbody>
+    {{range .Statuses}}<tr><td><span class="status {{.Tone}}">{{.Name}}</span></td><td>{{.Count}}</td><td>{{.Meaning}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+  <div class="links"><a href="/web/monitoring">Ver por ferramenta</a><a href="/web/audit">Ver cada chamada</a></div>
+</section>
+{{end}}
+
+{{if eq .Section "monitoring"}}
+<section class="summary" aria-label="Indicadores recentes">
+  <div class="metric"><span>Ferramentas chamadas</span><strong>{{len .Tools}}</strong></div>
+  <div class="metric"><span>Chamadas interrompidas</span><strong>{{.Stopped}}</strong></div>
+  <div class="metric"><span>Chamada mais lenta</span><strong>{{if .Slowest}}{{.Slowest}}{{else}}—{{end}}</strong>{{if .SlowestTool}}<code>{{.SlowestTool}}</code>{{end}}</div>
+</section>
+<section class="content">
+  <h2>Chamadas por ferramenta</h2>
+  {{if .Tools}}
+  <p class="muted">Na barra, <span class="plus">+</span> é chamada concluída (<code>preview</code> ou <code>success</code>) e <span class="minus">-</span> é chamada interrompida. O comprimento é proporcional à ferramenta mais chamada.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th scope="col">Ferramenta</th><th scope="col">Chamadas</th><th scope="col">Interrompidas</th><th scope="col">Duração média</th><th scope="col">Mais lenta</th><th scope="col">Última chamada</th></tr></thead>
+    <tbody>
+    {{range .Tools}}<tr><td><code>{{.Tool}}</code></td><td class="stat"><span class="stat-count">{{.Calls}}</span><span class="bar" aria-hidden="true"><span class="plus">{{.Plus}}</span><span class="minus">{{.Minus}}</span></span></td><td>{{.Stopped}}</td><td>{{.Average}}</td><td>{{.Slowest}}</td><td>{{.Last}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+  {{else}}
+  <p class="muted">Nenhuma chamada gravada neste diretório de estado.</p>
+  {{end}}
+</section>
+<section class="content">
+  <h2>O que está sendo medido</h2>
+  <p>Os números vêm das chamadas que já terminaram. A duração inclui o tempo do <code>git</code> e da rede até o remoto. Não há medição de chamadas em andamento nem do estado dos repositórios.</p>
+</section>
+{{end}}
+
+{{if eq .Section "audit"}}
+<section class="content">
+  <h2>Chamadas gravadas</h2>
+  <p class="muted">Cada linha guarda ferramenta, horário, duração e status. Repositório, branches, oids e mensagens não são gravados.</p>
+  {{if .Events}}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th scope="col">Ferramenta</th><th scope="col">Início</th><th scope="col">Duração</th><th scope="col">Status</th></tr></thead>
+    <tbody>
+    {{range .Events}}<tr><td><code>{{.Tool}}</code></td><td>{{.Time}}</td><td>{{.Duration}}</td><td><span class="status {{.Tone}}">{{.Status}}</span></td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+  {{else}}
+  <p class="muted">Nenhuma chamada gravada neste diretório de estado.</p>
+  {{end}}
+</section>
+{{end}}
+
+<p class="footer">Amostra: as {{.SampleLimit}} chamadas mais recentes dos últimos {{.RetentionDays}} dias. Dados lidos em {{.GeneratedAt}}.</p>
+{{end}}
+</main>
+</div>
+</body>
+</html>
