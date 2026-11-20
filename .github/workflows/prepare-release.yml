@@ -1,4 +1,4 @@
-# Action SHAs checked on 2026-11-10 against the newest stable releases.
+# checkout v7.0.1 and taiki-e/install-action v2.90.6 checked on 2026-11-20.
 name: Prepare Release
 
 on:
@@ -25,6 +25,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -54,7 +55,7 @@ jobs:
               output.write(f"value={version}\n")
           PY
       - name: Install pinned git-cliff
-        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
         with:
           tool: git-cliff@2.14.2
       - name: Create or resume release pull request
@@ -75,11 +76,12 @@ jobs:
           fi
           if ! gh pr list --state open --head "$branch" --json number --jq '.[0].number // empty' | grep -q .; then
             cat > "$RUNNER_TEMP/release-pr.md" << EOF
-          Preparação da release **v$VERSION**. Revise o changelog e aguarde o CI.
+          Preparação da release **v$VERSION**. Revise o changelog: cada entrada
+          diz o que mudou. Aguarde o CI.
 
           Depois do merge, marque o commit revisado em main com \`v$VERSION\`.
           O workflow Release confere a ascendência de main, roda o CI e publica
-          a GitHub Release.
+          a GitHub Release com a instalação e a lista do que entrou na versão.
 
           Esta preparação não cria tag nem release.
           EOF
@@ -87,3 +89,5 @@ jobs:
           else
             gh pr view "$branch" --json url --jq .url
           fi
+          # O GITHUB_TOKEN não dispara o CI do push nem do pull request.
+          gh workflow run ci.yml --ref "$branch"
